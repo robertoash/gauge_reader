@@ -1,4 +1,4 @@
-'''  
+'''
 Copyright (c) 2017 Intel Corporation.
 Licensed under the MIT license. See LICENSE file in the project root for full license information.
 '''
@@ -8,6 +8,8 @@ import numpy as np
 #import paho.mqtt.client as mqtt
 import time
 import pandas as pd
+
+results_save_path = './results/'
 
 def avg_circles(circles, b):
     avg_x=0
@@ -46,7 +48,7 @@ def calibrate_gauge(gauge_number, file_type):
     # gray = cv2.medianBlur(gray, 5)
 
     #for testing, output gray image
-    #cv2.imwrite('gauge-%s-bw.%s' %(gauge_number, file_type),gray)
+    #cv2.imwrite(str(results_save_path) + 'gauge-%s-bw.%s' %(gauge_number, file_type),gray)
 
     #detect circles
     #restricting the search from 35-48% of the possible radii gives fairly good results across different samples.  Remember that
@@ -61,7 +63,7 @@ def calibrate_gauge(gauge_number, file_type):
     cv2.circle(img, (x, y), 2, (0, 255, 0), 3, cv2.LINE_AA)  # draw center of circle
 
     #for testing, output circles on image
-    #cv2.imwrite('gauge-%s-circles.%s' % (gauge_number, file_type), img)
+    #cv2.imwrite(str(results_save_path) + 'gauge-%s-circles.%s' % (gauge_number, file_type), img)
 
 
     #for calibration, plot lines from center going out at every 10 degrees and add marker
@@ -101,7 +103,7 @@ def calibrate_gauge(gauge_number, file_type):
         cv2.line(img, (int(p1[i][0]), int(p1[i][1])), (int(p2[i][0]), int(p2[i][1])),(0, 255, 0), 2)
         cv2.putText(img, '%s' %(int(i*separation)), (int(p_text[i][0]), int(p_text[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 0.3,(0,0,0),1,cv2.LINE_AA)
 
-    cv2.imwrite('gauge-%s-calibration.%s' % (gauge_number, file_type), img)
+    cv2.imwrite(str(results_save_path) + 'gauge-%s-calibration.%s' % (gauge_number, file_type), img)
 
     #get user input on min, max, values, and units
     print('gauge number: %s' %gauge_number)
@@ -121,7 +123,7 @@ def calibrate_gauge(gauge_number, file_type):
     return min_angle, max_angle, min_value, max_value, units, x, y, r
 
 def find_needle(img, x, y, r, gauge_number, file_type):
-    
+
     # Draw circle centered around gauge center point, extract pixel indices and colors on circle perimeter
     blank = np.zeros(img.shape[:2], dtype=np.uint8)
     cv2.circle(blank, (x, y), r, 255, thickness=1)  # Draw function wants center point in (col, row) order like coordinates
@@ -134,14 +136,14 @@ def find_needle(img, x, y, r, gauge_number, file_type):
     # "reverse" the row indices to get a right-handed frame of reference with origin in bottom left of image
     ind_row_rev = [img.shape[0] - row for row in ind_row]
     circ_row_rev = img.shape[0] - y
-    
+
     # Convert from indexes in (row, col) order to coordinates in (col, row) order
     circ_x, circ_y = x, circ_row_rev
     original_coord = list(zip(ind_col, ind_row_rev))
 
     top_yval = max([y for (x,y) in original_coord])
     top_pixel = [(x, y) for (x, y) in original_coord if y == top_yval][0]
-    
+
     # Translate coords from gauge centers in order to compute angle between points on the perimeter
     translated = []
     for (x, y) in original_coord:
@@ -161,7 +163,7 @@ def find_needle(img, x, y, r, gauge_number, file_type):
     df["angle"] = angles
     df["clock_angle"] = df["angle"] + (-2*df["angle"] + 360)*(df["trans"].apply(lambda x: x[0] < 0)).astype(int)
 
-    # Draw lines between gauge center and perimeter pixels and compute mean and std dev of pixels along lines 
+    # Draw lines between gauge center and perimeter pixels and compute mean and std dev of pixels along lines
     stds = []
     means = []
     gray_values = []
@@ -191,10 +193,13 @@ def find_needle(img, x, y, r, gauge_number, file_type):
     # Draw needle
     imcopy = img.copy()
     cv2.line(imcopy, (x, y), (pt_col, pt_row), (0, 255, 0), thickness=1)  # Draw needle radial line
-    cv2.imwrite('gauge-%s-line.%s' % (gauge_number, file_type), imcopy)
+    cv2.imwrite(str(results_save_path) + 'gauge-%s-line.%s' % (gauge_number, file_type), imcopy)
+
+    print("Done finding needle")
 
     return needle_angle
 
+""""
 def get_current_value(img, min_angle, max_angle, min_value, max_value, x, y, r, gauge_number, file_type):
 
     # assumes the first line is the best one
@@ -205,8 +210,8 @@ def get_current_value(img, min_angle, max_angle, min_value, max_value, x, y, r, 
     cv2.line(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
     #for testing purposes, show the line overlayed on the original image
-    #cv2.imwrite('gauge-1-test.jpg', img)
-    cv2.imwrite('gauge-%s-lines-2.%s' % (gauge_number, file_type), img)
+    #cv2.imwrite(str(results_save_path) + 'gauge-1-test.jpg', img)
+    cv2.imwrite(str(results_save_path) + 'gauge-%s-lines-2.%s' % (gauge_number, file_type), img)
 
     #find the farthest point from the center to be what is used to determine the angle
     dist_pt_0 = dist_2_pts(x, y, x1, y1)
@@ -252,6 +257,7 @@ def get_current_value(img, min_angle, max_angle, min_value, max_value, x, y, r, 
     new_value = (((old_value - old_min) * new_range) / old_range) + new_min
 
     return new_value
+"""
 
 def main():
     gauge_number = 1
@@ -267,4 +273,4 @@ def main():
 
 if __name__=='__main__':
     main()
-   	
+
