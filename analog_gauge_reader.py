@@ -26,7 +26,72 @@ def avg_circles(circles, b):
     avg_r = int(avg_r/(b))
     return avg_x, avg_y, avg_r
 
-def calibrate_gauge(gauge_number, file_type):
+def image_resize(img_full, width=None, height=None, inter=cv2.INTER_AREA):
+    # initialize the dimensions of the image to be resized and
+    # grab the image size
+    dim = None
+    (h, w) = img_full.shape[:2]
+
+    # if both the width and height are None, then return the
+    # original image
+    if width is None and height is None:
+        return img_full
+
+    # Resize only if too big
+    if h <= 500:
+        return img_full
+
+    # check to see if the width is None
+    if width is None:
+        # calculate the ratio of the height and construct the
+        # dimensions
+        r = height / float(h)
+        dim = (int(w * r), height)
+
+    # otherwise, the height is None
+    else:
+        # calculate the ratio of the width and construct the
+        # dimensions
+        r = width / float(w)
+        dim = (width, int(h * r))
+
+    # resize the image
+    img_resized = cv2.resize(img_full, dim, interpolation = inter)
+
+    # return the resized image
+    return img_resized
+
+def isolate_and_crop(img_resized):
+    height, width = img_resized.shape[:2]
+    gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)  #convert to gray
+    #gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    # gray = cv2.medianBlur(gray, 5)
+
+    #for testing, output gray image
+    #cv2.imwrite(str(results_save_path) + 'gauge-%s-bw.%s' %(gauge_number, file_type),gray)
+
+    #detect circles
+    #restricting the search from 35-48% of the possible radii gives fairly good results across different samples.  Remember that
+    #these are pixel values which correspond to the possible radii search range.
+    ###### DEFAULT: circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 20, np.array([]), 100, 50, int(height*0.35), int(height*0.48))
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 20, np.array([]), 100, 50, int(height*0.30), int(height*0.48))
+    # average found circles, found it to be more accurate than trying to tune HoughCircles parameters to get just the right one
+    a, b, c = circles.shape
+    x,y,r = avg_circles(circles, b)
+
+    # Crop image to a bit bigger than circle found
+    circle_box_left_top_x, circle_box_left_top_y = int(x-(1.2*r)), int(y-(1.2*r))
+    circle_box_right_bottom_x, circle_box_right_bottom_y = int(x+(1.2*r)), int(y+(1.2*r))
+    crop_height = circle_box_right_bottom_y - circle_box_left_top_y
+    crop_width = circle_box_right_bottom_x - circle_box_left_top_x
+    cropped_img = img_resized[circle_box_left_top_y:circle_box_left_top_y+crop_height, circle_box_left_top_x:circle_box_left_top_x+crop_width]
+
+    new_zero_x = circle_box_left_top_x
+    new_zero_y = circle_box_left_top_y
+
+    return cropped_img, new_zero_x, new_zero_y
+
+def calibrate_gauge(cropped_img):
     '''
         This function should be run using a test image in order to calibrate the range available to the dial as well as the
         units.  It works by first finding the center point and radius of the gauge.  Then it draws lines at hard coded intervals
@@ -37,10 +102,8 @@ def calibrate_gauge(gauge_number, file_type):
         It will return the min value with angle in degrees (as a tuple), the max value with angle in degrees (as a tuple),
         and the units (as a string).
     '''
-
-    img = cv2.imread('gauge-%s.%s' %(gauge_number, file_type))
-    height, width = img.shape[:2]
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  #convert to gray
+    height, width = cropped_img.shape[:2]
+    gray = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2GRAY)  #convert to gray
     #gray = cv2.GaussianBlur(gray, (5, 5), 0)
     # gray = cv2.medianBlur(gray, 5)
 
@@ -56,12 +119,8 @@ def calibrate_gauge(gauge_number, file_type):
     x,y,r = avg_circles(circles, b)
 
     #draw center and circle
-    cv2.circle(img, (x, y), r, (0, 0, 255), 3, cv2.LINE_AA)  # draw circle
-    cv2.circle(img, (x, y), 2, (0, 255, 0), 3, cv2.LINE_AA)  # draw center of circle
-
-    #for testing, output circles on image
-    #cv2.imwrite(str(results_save_path) + 'gauge-%s-circles.%s' % (gauge_number, file_type), img)
-
+    cv2.circle(cropped_img, (x, y), r, (0, 0, 255), 3, cv2.LINE_AA)  # draw circle
+    cv2.circle(cropped_img, (x, y), 2, (0, 255, 0), 3, cv2.LINE_AA)  # draw center of circle
 
     #for calibration, plot lines from center going out at every 10 degrees and add marker
     #for i from 0 to 36 (every 10 deg)
@@ -73,7 +132,7 @@ def calibrate_gauge(gauge_number, file_type):
     (i+9) in the text offset rotates the labels by 90 degrees so 0/360 is at the bottom (-y in cartesian).  So this assumes the
     gauge is aligned in the image, but it can be adjusted by changing the value of 9 to something else.
     '''
-    separation = 5.0 #in degrees
+    separation = 10.0 #in degrees
     interval = int(360 / separation)
     p1 = np.zeros((interval,2))  #set empty arrays
     p2 = np.zeros((interval,2))
@@ -97,10 +156,10 @@ def calibrate_gauge(gauge_number, file_type):
 
     #add the lines and labels to the image
     for i in range(0,interval):
-        cv2.line(img, (int(p1[i][0]), int(p1[i][1])), (int(p2[i][0]), int(p2[i][1])),(0, 255, 0), 2)
-        cv2.putText(img, '%s' %(int(i*separation)), (int(p_text[i][0]), int(p_text[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 0.3,(0,0,0),1,cv2.LINE_AA)
+        cv2.line(cropped_img, (int(p1[i][0]), int(p1[i][1])), (int(p2[i][0]), int(p2[i][1])),(0, 255, 0), 2)
+        cv2.putText(cropped_img, '%s' %(int(i*separation)), (int(p_text[i][0]), int(p_text[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 0.3,(0,0,0),1,cv2.LINE_AA)
 
-    cv2.imwrite(str(results_save_path) + 'gauge-%s-calibration.%s' % (gauge_number, file_type), img)
+    cv2.imwrite(str(results_save_path) + 'gauge_calibration.jpg', cropped_img)
 
     #get user input on min, max, values, and units
     #print('gauge number: %s' %gauge_number)
@@ -111,31 +170,35 @@ def calibrate_gauge(gauge_number, file_type):
     #units = input('Enter units: ')
 
     #for testing purposes: hardcode and comment out raw_inputs above
-    min_angle = 43
-    max_angle = 316
+    min_angle = 42
+    max_angle = 318
     min_value = 0
     max_value = 500
     units = "°C"
 
-    return min_angle, max_angle, min_value, max_value, units, x, y, r
+    return cropped_img, min_angle, max_angle, min_value, max_value, units, x, y, r
 
-def find_needle(img, x, y, r, gauge_number, file_type):
+def find_needle(cropped_img, x, y, r):
 
-    imcopy = img.copy()
+    imcopy = cropped_img.copy()
 
     # Draw circle centered around gauge center point, extract pixel indices and colors on circle perimeter
-    blank = np.zeros(img.shape[:2], dtype=np.uint8)
+    blank = np.zeros(imcopy.shape[:2], dtype=np.uint8)
     cv2.circle(blank, (x, y), r, 255, thickness=1)  # Draw function wants center point in (col, row) order like coordinates
     cv2.circle(imcopy, (x, y), r, 255, thickness=1)
+    cv2.circle(imcopy, (x, y), 1, 255, thickness=3)
     ind_row, ind_col = np.nonzero(blank)
-    b = img[:, :, 0][ind_row, ind_col]
-    g = img[:, :, 1][ind_row, ind_col]
-    r = img[:, :, 2][ind_row, ind_col]
+    b = imcopy[:, :, 0][ind_row, ind_col]
+    g = imcopy[:, :, 1][ind_row, ind_col]
+    r = imcopy[:, :, 2][ind_row, ind_col]
     colors = list(zip(b, g, r))
 
     # "reverse" the row indices to get a right-handed frame of reference with origin in bottom left of image
-    ind_row_rev = [img.shape[0] - row for row in ind_row]
-    circ_row_rev = img.shape[0] - y
+    ind_row_rev = [imcopy.shape[0] - row for row in ind_row]
+    circ_row_rev = imcopy.shape[0] - y
+
+    orig_x = x
+    orig_y = y
 
     # Convert from indexes in (row, col) order to coordinates in (col, row) order
     circ_x, circ_y = x, circ_row_rev
@@ -171,13 +234,13 @@ def find_needle(img, x, y, r, gauge_number, file_type):
     means = []
     gray_values = []
     for (pt_col, pt_row_rev) in df["orig"].values:
-        pt_row = -(pt_row_rev - img.shape[0])
-        blank = np.zeros(img.shape[:2], dtype=np.uint8)
-        cv2.line(blank, (circ_x, circ_y), (pt_col, pt_row), 255, thickness=2)  # Draw function wants center point in (col, row) order like coordinates
+        pt_row = -(pt_row_rev - imcopy.shape[0])
+        blank = np.zeros(imcopy.shape[:2], dtype=np.uint8)
+        cv2.line(blank, (orig_x, orig_y), (pt_col, pt_row), 255, thickness=2)  # Draw function wants center point in (col, row) order like coordinates
         ind_row, ind_col = np.nonzero(blank)
-        b = img[:, :, 0][ind_row, ind_col]
-        g = img[:, :, 1][ind_row, ind_col]
-        r = img[:, :, 2][ind_row, ind_col]
+        b = imcopy[:, :, 0][ind_row, ind_col]
+        g = imcopy[:, :, 1][ind_row, ind_col]
+        r = imcopy[:, :, 2][ind_row, ind_col]
         grays = (b.astype(int) + g.astype(int) + r.astype(int))/3  # Compute grayscale with naive equation
         stds.append(np.std(grays))
         means.append(np.mean(grays))
@@ -190,7 +253,7 @@ def find_needle(img, x, y, r, gauge_number, file_type):
     # Draw every fifth radial line
     #for (pt_col, pt_row_rev) in df["orig"].values[::5]:
     #    pt_row = -(pt_row_rev - img.shape[0])
-    #    cv2.line(imcopy, (circ_x, circ_y), (pt_col, pt_row), 255, thickness=1)
+    #    cv2.line(imcopy, (orig_x, orig_y), (pt_col, pt_row), 255, thickness=1)
     #cv2.imshow("top", imcopy)
     #cv2.waitKey()
 
@@ -213,12 +276,12 @@ def find_needle(img, x, y, r, gauge_number, file_type):
     # Draw needle
     showcopy = imcopy.copy()
     (pt_col, pt_row) = df.loc[df["means"] == min_mean, "indices"].values[0]
-    cv2.line(showcopy, (circ_x, circ_y), (pt_col, pt_row), (0, 255, 0), thickness=5)  # Draw needle radial line
-    cv2.imwrite(str(results_save_path) + 'gauge-%s-line.%s' % (gauge_number, file_type), showcopy)
+    cv2.line(showcopy, (orig_x, orig_y), (pt_col, pt_row), (0, 255, 0), thickness=2)  # Draw needle radial line
+    cv2.imwrite(str(results_save_path) + 'gauge_line.jpg', showcopy)
 
     #print("Done finding needle with angle " + str(needle_angle) + "°")
 
-    return needle_angle
+    return needle_angle, pt_col, pt_row
 
 def get_current_value(min_angle, max_angle, min_value, max_value, needle_angle):
 
@@ -236,16 +299,28 @@ def get_current_value(min_angle, max_angle, min_value, max_value, needle_angle):
 
     return gauge_reading
 
-def main():
-    gauge_number = 1
-    file_type='jpg'
-    # name the calibration image of your gauge 'gauge-#.jpg', for example 'gauge-5.jpg'.  It's written this way so you can easily try multiple images
-    min_angle, max_angle, min_value, max_value, units, x, y, r = calibrate_gauge(gauge_number, file_type)
+def show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row):
+    #draw center, circle and needle on resized image
+    cv2.circle(img_resized, (new_zero_x + x, new_zero_y + y), r, (0, 0, 255), 3, cv2.LINE_AA)  # draw circle
+    cv2.circle(img_resized, (new_zero_x + x, new_zero_y + y), 3, (0, 255, 0), 3, cv2.LINE_AA)  # draw center of circle
+    cv2.line(img_resized, (new_zero_x + x, new_zero_y + y), (new_zero_x + pt_col, new_zero_y + pt_row), (0, 255, 0), thickness=2)  # Draw needle radial line
 
+    #for testing, output circles on image
+    cv2.imshow(str(results_save_path) + 'gauge_final_result.jpg', img_resized)
+    cv2.waitKey()
+    cv2.imwrite(str(results_save_path) + 'gauge_final_result.jpg', img_resized)
+    return 0
+
+def main():
     #feed an image (or frame) to get the current value, based on the calibration, by default uses same image as calibration
-    img = cv2.imread('gauge-%s.%s' % (gauge_number, file_type))
-    needle_angle = find_needle(img, x, y, r, gauge_number, file_type)
+    img_full = cv2.imread('gauge.jpg')
+    # Resize image if necessary
+    img_resized = image_resize(img_full, height=500)
+    cropped_img, new_zero_x, new_zero_y = isolate_and_crop(img_resized)
+    cropped_img, min_angle, max_angle, min_value, max_value, units, x, y, r = calibrate_gauge(cropped_img)
+    needle_angle, pt_col, pt_row = find_needle(cropped_img, x, y, r)
     gauge_reading = get_current_value(min_angle, max_angle, min_value, max_value, needle_angle)
+    show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
     print("Current reading: %s %s" %(gauge_reading, units))
 
 if __name__=='__main__':
