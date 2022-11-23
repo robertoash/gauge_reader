@@ -1,4 +1,4 @@
-'''  
+'''
 Copyright (c) 2017 Intel Corporation.
 Licensed under the MIT license. See LICENSE file in the project root for full license information.
 '''
@@ -7,6 +7,10 @@ import cv2
 import numpy as np
 #import paho.mqtt.client as mqtt
 import time
+import pandas as pd
+#import matplotlib.pyplot as plt
+
+results_save_path = './results/'
 
 def avg_circles(circles, b):
     avg_x=0
@@ -21,10 +25,6 @@ def avg_circles(circles, b):
     avg_y = int(avg_y/(b))
     avg_r = int(avg_r/(b))
     return avg_x, avg_y, avg_r
-
-def dist_2_pts(x1, y1, x2, y2):
-    #print(np.sqrt((x2-x1)^2+(y2-y1)^2))
-    return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 def calibrate_gauge(gauge_number, file_type):
     '''
@@ -45,7 +45,7 @@ def calibrate_gauge(gauge_number, file_type):
     # gray = cv2.medianBlur(gray, 5)
 
     #for testing, output gray image
-    #cv2.imwrite('gauge-%s-bw.%s' %(gauge_number, file_type),gray)
+    #cv2.imwrite(str(results_save_path) + 'gauge-%s-bw.%s' %(gauge_number, file_type),gray)
 
     #detect circles
     #restricting the search from 35-48% of the possible radii gives fairly good results across different samples.  Remember that
@@ -60,7 +60,7 @@ def calibrate_gauge(gauge_number, file_type):
     cv2.circle(img, (x, y), 2, (0, 255, 0), 3, cv2.LINE_AA)  # draw center of circle
 
     #for testing, output circles on image
-    cv2.imwrite('gauge-%s-circles.%s' % (gauge_number, file_type), img)
+    #cv2.imwrite(str(results_save_path) + 'gauge-%s-circles.%s' % (gauge_number, file_type), img)
 
 
     #for calibration, plot lines from center going out at every 10 degrees and add marker
@@ -100,10 +100,10 @@ def calibrate_gauge(gauge_number, file_type):
         cv2.line(img, (int(p1[i][0]), int(p1[i][1])), (int(p2[i][0]), int(p2[i][1])),(0, 255, 0), 2)
         cv2.putText(img, '%s' %(int(i*separation)), (int(p_text[i][0]), int(p_text[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 0.3,(0,0,0),1,cv2.LINE_AA)
 
-    cv2.imwrite('gauge-%s-calibration.%s' % (gauge_number, file_type), img)
+    cv2.imwrite(str(results_save_path) + 'gauge-%s-calibration.%s' % (gauge_number, file_type), img)
 
     #get user input on min, max, values, and units
-    print('gauge number: %s' %gauge_number)
+    #print('gauge number: %s' %gauge_number)
     #min_angle = input('Min angle (lowest possible angle of dial) - in degrees: ') #the lowest possible angle
     #max_angle = input('Max angle (highest possible angle) - in degrees: ') #highest possible angle
     #min_value = input('Min value: ') #usually zero
@@ -119,137 +119,122 @@ def calibrate_gauge(gauge_number, file_type):
 
     return min_angle, max_angle, min_value, max_value, units, x, y, r
 
-def get_current_value(img, min_angle, max_angle, min_value, max_value, x, y, r, gauge_number, file_type):
+def find_needle(img, x, y, r, gauge_number, file_type):
 
-    #for testing purposes
-    #img = cv2.imread('gauge-%s.%s' % (gauge_number, file_type))
+    imcopy = img.copy()
 
-    gray2 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Draw circle centered around gauge center point, extract pixel indices and colors on circle perimeter
+    blank = np.zeros(img.shape[:2], dtype=np.uint8)
+    cv2.circle(blank, (x, y), r, 255, thickness=1)  # Draw function wants center point in (col, row) order like coordinates
+    cv2.circle(imcopy, (x, y), r, 255, thickness=1)
+    ind_row, ind_col = np.nonzero(blank)
+    b = img[:, :, 0][ind_row, ind_col]
+    g = img[:, :, 1][ind_row, ind_col]
+    r = img[:, :, 2][ind_row, ind_col]
+    colors = list(zip(b, g, r))
 
-    # Set threshold and maxValue
-    thresh = 175
-    maxValue = 255
+    # "reverse" the row indices to get a right-handed frame of reference with origin in bottom left of image
+    ind_row_rev = [img.shape[0] - row for row in ind_row]
+    circ_row_rev = img.shape[0] - y
 
-    # for testing purposes, found cv2.THRESH_BINARY_INV to perform the best
-    # th, dst1 = cv2.threshold(gray2, thresh, maxValue, cv2.THRESH_BINARY);
-    # th, dst2 = cv2.threshold(gray2, thresh, maxValue, cv2.THRESH_BINARY_INV);
-    # th, dst3 = cv2.threshold(gray2, thresh, maxValue, cv2.THRESH_TRUNC);
-    # th, dst4 = cv2.threshold(gray2, thresh, maxValue, cv2.THRESH_TOZERO);
-    # th, dst5 = cv2.threshold(gray2, thresh, maxValue, cv2.THRESH_TOZERO_INV);
-    # cv2.imwrite('gauge-%s-dst1.%s' % (gauge_number, file_type), dst1)
-    # cv2.imwrite('gauge-%s-dst2.%s' % (gauge_number, file_type), dst2)
-    # cv2.imwrite('gauge-%s-dst3.%s' % (gauge_number, file_type), dst3)
-    # cv2.imwrite('gauge-%s-dst4.%s' % (gauge_number, file_type), dst4)
-    # cv2.imwrite('gauge-%s-dst5.%s' % (gauge_number, file_type), dst5)
+    # Convert from indexes in (row, col) order to coordinates in (col, row) order
+    circ_x, circ_y = x, circ_row_rev
+    original_coord = list(zip(ind_col, ind_row_rev))
 
-    # apply thresholding which helps for finding lines
-    th, dst2 = cv2.threshold(gray2, thresh, maxValue, cv2.THRESH_BINARY_INV);
+    min_yval = min([y for (x,y) in original_coord])
+    min_pixel = [(x, y) for (x, y) in original_coord if y == min_yval][0]
 
-    # found Hough Lines generally performs better without Canny / blurring, though there were a couple exceptions where it would only work with Canny / blurring
-    #dst2 = cv2.medianBlur(dst2, 5)
-    #dst2 = cv2.Canny(dst2, 50, 150)
-    #dst2 = cv2.GaussianBlur(dst2, (5, 5), 0)
+    # Translate coords from gauge centers in order to compute angle between points on the perimeter
+    translated = []
+    for (x, y) in original_coord:
+        translated.append((x - circ_x, y - circ_y))
 
-    # for testing, show image after thresholding
-    cv2.imwrite('gauge-%s-tempdst2.%s' % (gauge_number, file_type), dst2)
+    # Construct dataframe holding various coordinate representations and pixel values
+    df = pd.DataFrame({"indices":list(zip(ind_col, ind_row)), "orig":original_coord, "trans": translated, "color": colors})
 
-    # find lines
-    minLineLength = 10
-    maxLineGap = 0
-    lines = cv2.HoughLinesP(image=dst2, rho=3, theta=np.pi / 180, threshold=100,minLineLength=minLineLength, maxLineGap=0)  # rho is set to 3 to detect more lines, easier to get more then filter them out later
+    # Identify the pixel which is the lowest point of the circle
+    df["min_pixel"] = (df["orig"] == min_pixel)
+    min_trans_pix = df.loc[df["min_pixel"], "trans"].values[0]
 
-    #for testing purposes, show all found lines
-    # for i in range(0, len(lines)):
-    #   for x1, y1, x2, y2 in lines[i]:
-    #      cv2.line(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-    #      cv2.imwrite('gauge-%s-lines-test.%s' %(gauge_number, file_type), img)
+    # Visualize the circle and lowest circle pixel
+    min_orig_pix =  df.loc[df["min_pixel"], "indices"].values[0]  # Get indices for "lowest" pixel on circle after rotation
+    cv2.circle(imcopy, min_orig_pix, 1, 255, thickness=3)  # Draw lowest pixel
 
-    # remove all lines outside a given radius
-    final_line_list = []
-    #print "radius: %s" %r
+    # Angle created between the lowest pixel and other perimeter pixels
+    angles = []
+    for vec in df["trans"].values:
+        angles.append((180 / np.pi) * np.arccos(np.dot(min_trans_pix, vec) / (np.linalg.norm(min_trans_pix) * np.linalg.norm(vec))))
+    df["angle"] = angles
 
-    diff1LowerBound = 0.15 #diff1LowerBound and diff1UpperBound determine how close the line should be from the center
-    diff1UpperBound = 0.25
-    diff2LowerBound = 0.5 #diff2LowerBound and diff2UpperBound determine how close the other point of the line should be to the outside of the gauge
-    diff2UpperBound = 1.0
-    for i in range(0, len(lines)):
-        for x1, y1, x2, y2 in lines[i]:
-            diff1 = dist_2_pts(x, y, x1, y1)  # x, y is center of circle
-            diff2 = dist_2_pts(x, y, x2, y2)  # x, y is center of circle
-            #set diff1 to be the smaller (closest to the center) of the two), makes the math easier
-            if (diff1 > diff2):
-                temp = diff1
-                diff1 = diff2
-                diff2 = temp
-            # check if line is within an acceptable range
-            if (((diff1<diff1UpperBound*r) and (diff1>diff1LowerBound*r) and (diff2<diff2UpperBound*r)) and (diff2>diff2LowerBound*r)):
-                line_length = dist_2_pts(x1, y1, x2, y2)
-                # add to final list
-                final_line_list.append([x1, y1, x2, y2])
+    # Draw lines between gauge center and perimeter pixels and compute mean and std dev of pixels along lines
+    stds = []
+    means = []
+    gray_values = []
+    for (pt_col, pt_row_rev) in df["orig"].values:
+        pt_row = -(pt_row_rev - img.shape[0])
+        blank = np.zeros(img.shape[:2], dtype=np.uint8)
+        cv2.line(blank, (circ_x, circ_y), (pt_col, pt_row), 255, thickness=2)  # Draw function wants center point in (col, row) order like coordinates
+        ind_row, ind_col = np.nonzero(blank)
+        b = img[:, :, 0][ind_row, ind_col]
+        g = img[:, :, 1][ind_row, ind_col]
+        r = img[:, :, 2][ind_row, ind_col]
+        grays = (b.astype(int) + g.astype(int) + r.astype(int))/3  # Compute grayscale with naive equation
+        stds.append(np.std(grays))
+        means.append(np.mean(grays))
+        gray_values.append(grays)
 
-    #testing only, show all lines after filtering
-    # for i in range(0,len(final_line_list)):
-    #     x1 = final_line_list[i][0]
-    #     y1 = final_line_list[i][1]
-    #     x2 = final_line_list[i][2]
-    #     y2 = final_line_list[i][3]
-    #     cv2.line(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    df["stds"] = stds
+    df["means"] = means
+    df["gray_values"] = gray_values
 
-    # assumes the first line is the best one
-    x1 = final_line_list[0][0]
-    y1 = final_line_list[0][1]
-    x2 = final_line_list[0][2]
-    y2 = final_line_list[0][3]
-    cv2.line(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    # Draw every fifth radial line
+    #for (pt_col, pt_row_rev) in df["orig"].values[::5]:
+    #    pt_row = -(pt_row_rev - img.shape[0])
+    #    cv2.line(imcopy, (circ_x, circ_y), (pt_col, pt_row), 255, thickness=1)
+    #cv2.imshow("top", imcopy)
+    #cv2.waitKey()
 
-    #for testing purposes, show the line overlayed on the original image
-    #cv2.imwrite('gauge-1-test.jpg', img)
-    cv2.imwrite('gauge-%s-lines-2.%s' % (gauge_number, file_type), img)
+    # Plot mean pixel value as a function of needle angle (zero degrees is 6 o'clock)
+    # fig, ax = plt.subplots()
+    # ax2 = ax.twinx()
+    # ax2.scatter(df["angle"], df["stds"], color="r", alpha=0.3, label="pixel std. dev.")
+    # ax.scatter(df["angle"], df["means"], label="pixel mean", color="b", alpha=0.3)
+    # ax2.legend(loc="lower center")
+    # ax.legend(loc="lower left")
+    # ax.set_xlabel("Angle of Radial Line")
+    # ax.set_ylabel("Metric Value along Radial Line")
+    # ax.set_title("Locating Gauge Needle from Radial Line Pixel Values", fontsize=16)
+    # plt.show()
 
-    #find the farthest point from the center to be what is used to determine the angle
-    dist_pt_0 = dist_2_pts(x, y, x1, y1)
-    dist_pt_1 = dist_2_pts(x, y, x2, y2)
-    if (dist_pt_0 > dist_pt_1):
-        x_angle = x1 - x
-        y_angle = y - y1
-    else:
-        x_angle = x2 - x
-        y_angle = y - y2
-    # take the arc tan of y/x to find the angle
-    res = np.arctan(np.divide(float(y_angle), float(x_angle)))
-    #np.rad2deg(res) #coverts to degrees
+    # Find needle angle
+    min_mean = df["means"].min()
+    needle_angle = df.loc[df["means"] == min_mean, "angle"].values[0]  # Find needle angle
 
-    # print x_angle
-    # print y_angle
-    # print res
-    # print np.rad2deg(res)
+    # Draw needle
+    showcopy = imcopy.copy()
+    (pt_col, pt_row) = df.loc[df["means"] == min_mean, "indices"].values[0]
+    cv2.line(showcopy, (circ_x, circ_y), (pt_col, pt_row), (0, 255, 0), thickness=5)  # Draw needle radial line
+    cv2.imwrite(str(results_save_path) + 'gauge-%s-line.%s' % (gauge_number, file_type), showcopy)
 
-    #these were determined by trial and error
-    res = np.rad2deg(res)
-    if x_angle > 0 and y_angle > 0:  #in quadrant I
-        final_angle = 270 - res
-    if x_angle < 0 and y_angle > 0:  #in quadrant II
-        final_angle = 90 - res
-    if x_angle < 0 and y_angle < 0:  #in quadrant III
-        final_angle = 90 - res
-    if x_angle > 0 and y_angle < 0:  #in quadrant IV
-        final_angle = 270 - res
+    #print("Done finding needle with angle " + str(needle_angle) + "°")
+
+    return needle_angle
+
+def get_current_value(min_angle, max_angle, min_value, max_value, needle_angle):
 
     #print final_angle
 
-    old_min = float(min_angle)
-    old_max = float(max_angle)
+    min_angle_float = float(min_angle)
+    max_angle_float = float(max_angle)
 
-    new_min = float(min_value)
-    new_max = float(max_value)
+    min_value_float = float(min_value)
+    max_value_float = float(max_value)
 
-    old_value = final_angle
+    old_range = (max_angle_float - min_angle_float)
+    new_range = (max_value_float - min_value_float)
+    gauge_reading = (((needle_angle - min_angle_float) * new_range) / old_range) + min_value_float
 
-    old_range = (old_max - old_min)
-    new_range = (new_max - new_min)
-    new_value = (((old_value - old_min) * new_range) / old_range) + new_min
-
-    return new_value
+    return gauge_reading
 
 def main():
     gauge_number = 1
@@ -259,9 +244,10 @@ def main():
 
     #feed an image (or frame) to get the current value, based on the calibration, by default uses same image as calibration
     img = cv2.imread('gauge-%s.%s' % (gauge_number, file_type))
-    val = get_current_value(img, min_angle, max_angle, min_value, max_value, x, y, r, gauge_number, file_type)
-    print("Current reading: %s %s" %(val, units))
+    needle_angle = find_needle(img, x, y, r, gauge_number, file_type)
+    gauge_reading = get_current_value(min_angle, max_angle, min_value, max_value, needle_angle)
+    print("Current reading: %s %s" %(gauge_reading, units))
 
 if __name__=='__main__':
     main()
-   	
+
