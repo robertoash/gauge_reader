@@ -74,7 +74,7 @@ def isolate_and_crop(img_resized):
     #restricting the search from 35-48% of the possible radii gives fairly good results across different samples.  Remember that
     #these are pixel values which correspond to the possible radii search range.
     ###### DEFAULT: circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 20, np.array([]), 100, 50, int(height*0.35), int(height*0.48))
-    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 20, np.array([]), 100, 50, int(height*0.30), int(height*0.48))
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 20, np.array([]), 100, 50, int(height*0.20), int(height*0.48))
     # average found circles, found it to be more accurate than trying to tune HoughCircles parameters to get just the right one
     a, b, c = circles.shape
     x,y,r = avg_circles(circles, b)
@@ -157,7 +157,7 @@ def calibrate_gauge(cropped_img):
     #add the lines and labels to the image
     for i in range(0,interval):
         cv2.line(cropped_img, (int(p1[i][0]), int(p1[i][1])), (int(p2[i][0]), int(p2[i][1])),(0, 255, 0), 2)
-        cv2.putText(cropped_img, '%s' %(int(i*separation)), (int(p_text[i][0]), int(p_text[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 0.3,(0,0,0),1,cv2.LINE_AA)
+        cv2.putText(cropped_img, '%s' %(int(i*separation)), (int(p_text[i][0]), int(p_text[i][1])), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0,255,0), 1, cv2.LINE_AA)
 
     cv2.imwrite(str(results_save_path) + 'gauge_calibration.jpg', cropped_img)
 
