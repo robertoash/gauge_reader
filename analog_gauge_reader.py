@@ -5,12 +5,32 @@ Licensed under the MIT license. See LICENSE file in the project root for full li
 
 import cv2
 import numpy as np
-#import paho.mqtt.client as mqtt
+# import paho.mqtt.client as mqtt
 import time
 import pandas as pd
 #import matplotlib.pyplot as plt
+from secrets import ssh_host, ssh_user, ssh_pass
+import paramiko
 
 results_save_path = './results/'
+
+def download_image():
+    remote_file_path = '/home/pi/gauge.jpg'
+    local_file_path = './gauge.jpg'
+
+    # Create client and connect
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_client.connect(hostname=ssh_host, username=ssh_user, password=ssh_pass)
+
+    # Download image
+    ftp_client=ssh_client.open_sftp()
+    ftp_client.get(remote_file_path, local_file_path)
+    ftp_client.close()
+
+    downloaded_image_path = local_file_path
+
+    return downloaded_image_path
 
 def avg_circles(circles, b):
     avg_x=0
@@ -312,14 +332,24 @@ def show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row):
     return 0
 
 def main():
-    #feed an image (or frame) to get the current value, based on the calibration, by default uses same image as calibration
-    img_full = cv2.imread('gauge.jpg')
+    # Download image
+    # TODO: Download image via SSH
+    downloaded_image_path = download_image()
+    # Feed an image (or frame) to get the current value, based on the calibration, by default uses same image as calibration
+    img_full = cv2.imread(downloaded_image_path)
     # Resize image if necessary
     img_resized = image_resize(img_full, height=500)
     cropped_img, new_zero_x, new_zero_y = isolate_and_crop(img_resized)
+    # Calibrate the gauge
     cropped_img, min_angle, max_angle, min_value, max_value, units, x, y, r = calibrate_gauge(cropped_img)
+    # Find needle
     needle_angle, pt_col, pt_row = find_needle(cropped_img, x, y, r)
+    # Read gauge value
     gauge_reading = get_current_value(min_angle, max_angle, min_value, max_value, needle_angle)
+    # Publish gauge value to MQTT
+    # TODO: Write MQTT part
+
+    # Show results locally
     show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
     print("Current reading: %s %s" %(gauge_reading, units))
 
