@@ -8,29 +8,16 @@ import numpy as np
 # import paho.mqtt.client as mqtt
 import time
 import pandas as pd
-#import matplotlib.pyplot as plt
-from secrets import ssh_host, ssh_user, ssh_pass
-import paramiko
+from secrets import mqtt_user, mqtt_pass
 
+local_image_path = '/home/pi/gauge.jpg'
 results_save_path = './results/'
 
-def download_image():
-    remote_file_path = '/home/pi/gauge.jpg'
-    local_file_path = './gauge.jpg'
-
-    # Create client and connect
-    ssh_client = paramiko.SSHClient()
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh_client.connect(hostname=ssh_host, username=ssh_user, password=ssh_pass)
-
-    # Download image
-    ftp_client=ssh_client.open_sftp()
-    ftp_client.get(remote_file_path, local_file_path)
-    ftp_client.close()
-
-    downloaded_image_path = local_file_path
-
-    return downloaded_image_path
+# MQTT Config
+broker = '192.168.1.100'
+port = 1883
+topic = "sensors/gauge_reader/temperature"
+client_id = 'GaugeReaderClient'
 
 def avg_circles(circles, b):
     avg_x=0
@@ -331,12 +318,35 @@ def show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row):
     cv2.imwrite(str(results_save_path) + 'gauge_final_result.jpg', img_resized)
     return 0
 
+def connect_mqtt():
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print("Connected to MQTT Broker!")
+        else:
+            print("Failed to connect, return code %d\n", rc)
+
+    client = mqtt_client.Client(client_id)
+    client.username_pw_set(mqtt_user, mqtt_pass)
+    client.on_connect = on_connect
+    client.connect(broker, port)
+    return client
+
+
+def publish(client, gauge_reading):
+    msg = gauge_reading
+
+    result = client.publish(topic, msg)
+    # result: [0, 1]
+    status = result[0]
+    if status == 0:
+        print(f"Sent `{msg}` to topic `{topic}`")
+    else:
+        print(f"Failed to send message to topic {topic}")    
+
+
 def main():
-    # Download image
-    # TODO: Download image via SSH
-    downloaded_image_path = download_image()
     # Feed an image (or frame) to get the current value, based on the calibration, by default uses same image as calibration
-    img_full = cv2.imread(downloaded_image_path)
+    img_full = cv2.imread(local_image_path)
     # Resize image if necessary
     img_resized = image_resize(img_full, height=500)
     cropped_img, new_zero_x, new_zero_y = isolate_and_crop(img_resized)
@@ -347,11 +357,12 @@ def main():
     # Read gauge value
     gauge_reading = get_current_value(min_angle, max_angle, min_value, max_value, needle_angle)
     # Publish gauge value to MQTT
-    # TODO: Write MQTT part
+    client = connect_mqtt()
+    publish(client, gauge_reading)
 
     # Show results locally
-    show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
-    print("Current reading: %s %s" %(gauge_reading, units))
+    #show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
+    #print("Current reading: %s %s" %(gauge_reading, units))
 
 if __name__=='__main__':
     main()

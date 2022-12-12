@@ -156,3 +156,5 @@ pyvenv.cfg
 /results/
 secrets.py
 sftp-config.json
+temp/*
+*/results/*
