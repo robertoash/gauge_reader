@@ -8,13 +8,13 @@ import numpy as np
 # import paho.mqtt.client as mqtt
 import time
 import pandas as pd
-from secrets import mqtt_user, mqtt_pass
+from secrets import mqtt_broker, mqtt_user, mqtt_pass
 
-local_image_path = '/home/pi/gauge.jpg'
+local_image_path = '/home/pi/dev/gauge_reader/gauge.jpg'
 results_save_path = './results/'
 
 # MQTT Config
-broker = '192.168.1.100'
+broker = mqtt_broker
 port = 1883
 topic = "sensors/gauge_reader/temperature"
 client_id = 'GaugeReaderClient'
