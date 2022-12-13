@@ -5,5 +5,5 @@ ADD gauge.jpg /
 RUN pip install paho-mqtt
 RUN pip install numpy==1.21.5
 RUN pip install pandas
-RUN pip install opencv-python
+RUN pip install opencv-python-headless
 CMD [ "python", "./gauge_reader.py" ]

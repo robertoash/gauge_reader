@@ -364,10 +364,12 @@ def read_gauge():
     client = connect_mqtt()
     publish(client, gauge_reading)
 
+    return gauge_reading, units
+
 def main():
     try:
         while True:
-            read_gauge()
+            gauge_reading, units = read_gauge()
 
             # Show results locally
             #show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
