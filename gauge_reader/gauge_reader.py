@@ -19,7 +19,7 @@ port = 1883
 topic = "sensors/gauge_reader/temperature"
 client_id = 'GaugeReaderClient'
 
-read_refresh = 1
+read_refresh_seconds = 30
 
 def avg_circles(circles, b):
     avg_x=0
@@ -375,7 +375,7 @@ def main():
             #show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
             print("Current reading: %s %s" %(gauge_reading, units))
 
-            time.sleep(read_refresh * 60)
+            time.sleep(read_refresh_seconds)
     except KeyboardInterrupt:
         print('Interrupted!')
 
