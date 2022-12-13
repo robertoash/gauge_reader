@@ -4,13 +4,13 @@ Licensed under the MIT license. See LICENSE file in the project root for full li
 '''
 
 import cv2
-import numpy as np
-# import paho.mqtt.client as mqtt
+import numpy as np # pip install numpy==1.21.5
+import paho.mqtt.client as mqtt
 import time
 import pandas as pd
 from secrets import mqtt_broker, mqtt_user, mqtt_pass
 
-local_image_path = '/home/pi/dev/gauge_reader/gauge.jpg'
+local_image_path = 'gauge.jpg' #'/home/pi/dev/gauge_reader/gauge.jpg'
 results_save_path = './results/'
 
 # MQTT Config
@@ -18,6 +18,8 @@ broker = mqtt_broker
 port = 1883
 topic = "sensors/gauge_reader/temperature"
 client_id = 'GaugeReaderClient'
+
+read_refresh = 1
 
 def avg_circles(circles, b):
     avg_x=0
@@ -178,7 +180,7 @@ def calibrate_gauge(cropped_img):
 
     #for testing purposes: hardcode and comment out raw_inputs above
     min_angle = 42
-    max_angle = 318
+    max_angle = 317
     min_value = 0
     max_value = 500
     units = "°C"
@@ -302,7 +304,9 @@ def get_current_value(min_angle, max_angle, min_value, max_value, needle_angle):
 
     old_range = (max_angle_float - min_angle_float)
     new_range = (max_value_float - min_value_float)
-    gauge_reading = (((needle_angle - min_angle_float) * new_range) / old_range) + min_value_float
+    full_gauge_reading = (((needle_angle - min_angle_float) * new_range) / old_range) + min_value_float
+
+    gauge_reading = np.round(full_gauge_reading, decimals=1)
 
     return gauge_reading
 
@@ -325,7 +329,7 @@ def connect_mqtt():
         else:
             print("Failed to connect, return code %d\n", rc)
 
-    client = mqtt_client.Client(client_id)
+    client = mqtt.Client(client_id)
     client.username_pw_set(mqtt_user, mqtt_pass)
     client.on_connect = on_connect
     client.connect(broker, port)
@@ -341,10 +345,10 @@ def publish(client, gauge_reading):
     if status == 0:
         print(f"Sent `{msg}` to topic `{topic}`")
     else:
-        print(f"Failed to send message to topic {topic}")    
+        print(f"Failed to send message to topic {topic}")
 
 
-def main():
+def read_gauge():
     # Feed an image (or frame) to get the current value, based on the calibration, by default uses same image as calibration
     img_full = cv2.imread(local_image_path)
     # Resize image if necessary
@@ -360,9 +364,18 @@ def main():
     client = connect_mqtt()
     publish(client, gauge_reading)
 
-    # Show results locally
-    #show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
-    #print("Current reading: %s %s" %(gauge_reading, units))
+def main():
+    try:
+        while True:
+            read_gauge()
+
+            # Show results locally
+            #show_results(img_resized, new_zero_x, new_zero_y, x, y, r, pt_col, pt_row)
+            print("Current reading: %s %s" %(gauge_reading, units))
+
+            time.sleep(read_refresh * 60)
+    except KeyboardInterrupt:
+        print('Interrupted!')
 
 if __name__=='__main__':
     main()

@@ -1,0 +1,2 @@
+docker build -t gauge_reader . && \
+docker run --name gauge_reader -d --restart always gauge_reader
