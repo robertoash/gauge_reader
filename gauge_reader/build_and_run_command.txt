@@ -1,2 +1,12 @@
+First build
+
+docker build -t gauge_reader . && \
+docker run --name gauge_reader -d --restart always gauge_reader
+
+Rebuild
+
+docker stop gauge_reader && \
+docker rm gauge_reader && \
+docker rmi gauge_reader && \
 docker build -t gauge_reader . && \
 docker run --name gauge_reader -d --restart always gauge_reader
