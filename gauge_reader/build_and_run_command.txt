@@ -10,3 +10,7 @@ docker rm gauge_reader && \
 docker rmi gauge_reader && \
 docker build -t gauge_reader . && \
 docker run -d --name gauge_reader --mount type=bind,source=/home/pi/dev/gauge_reader/gauge.jpg,target=/gauge.jpg --restart always gauge_reader
+
+
+Copy image to local
+scp pi@192.168.1.161:/home/pi/dev/gauge_reader/gauge.jpg /Users/pargash/Desktop/gauge.jpg
